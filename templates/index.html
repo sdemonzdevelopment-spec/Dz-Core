@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>DemonZ Cloud</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-username="{{ username if username else '' }}" data-is-owner="{{ 'true' if is_owner else 'false' }}">
+
+<div id="toast-container"></div>
+<div id="loader" class="loader-overlay hidden"><div class="loader-spinner"></div></div>
+<div id="drop-zone" class="drop-zone"><div class="drop-message"><i class="fa-solid fa-cloud-arrow-up"></i> Drop files to upload</div></div>
+
+{% if not username %}
+<div class="auth-wrapper">
+    <div id="auth-card" class="auth-box">
+        <h1 class="brand" style="margin-bottom: 20px;">Demon<span>Z</span></h1>
+        <div class="auth-tabs">
+            <button id="tab-login" class="btn active" onclick="switchAuth('login')">Login</button>
+            <button id="tab-register" class="btn" onclick="switchAuth('register')">Register</button>
+        </div>
+        <form id="form-login" onsubmit="handleLogin(event)">
+            <input type="text" id="login-user" class="input-box" placeholder="Username" required autocomplete="username">
+            <input type="password" id="login-pass" class="input-box" placeholder="Password" required autocomplete="current-password">
+            <button type="submit" class="btn btn-primary w-full"><i class="fa-solid fa-right-to-bracket"></i> Login</button>
+        </form>
+        <form id="form-register" class="hidden" onsubmit="handleRegister(event)">
+            <input type="text" id="reg-user" class="input-box" placeholder="New Username" required autocomplete="username">
+            <input type="password" id="reg-pass" class="input-box" placeholder="New Password" required autocomplete="new-password">
+            <button type="submit" class="btn btn-primary w-full"><i class="fa-solid fa-user-plus"></i> Create Account</button>
+        </form>
+    </div>
+</div>
+{% else %}
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <div class="brand">Demon<span>Z</span></div>
+        <i class="fa-solid fa-xmark desktop-only" style="cursor:pointer; display:none;" onclick="toggleSidebar()"></i>
+    </div>
+    <div class="sidebar-content">
+        <div style="padding: 0 15px 20px 15px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); margin-bottom: 15px;">
+            <img src="{{ url_for('get_avatar', username=username) }}" style="width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--accent); object-fit: cover;">
+            <div>
+                <div style="font-weight: 700; font-size: 0.9rem;">{{ username }}</div>
+                <div style="font-size: 0.75rem; color: var(--text-dim);"><i class="fa-solid fa-circle" style="font-size: 6px; color: var(--success);"></i> Online</div>
+            </div>
+        </div>
+        <div class="nav-link active" data-target="home" onclick="navigate('home'); toggleSidebar()">
+            <i class="fa-solid fa-house"></i> Dashboard
+        </div>
+        <div class="nav-link" data-target="files" onclick="navigate('files'); toggleSidebar()">
+            <i class="fa-solid fa-folder-open"></i> File Manager
+        </div>
+        <div class="nav-link" data-target="chat" onclick="navigate('chat'); toggleSidebar()">
+            <i class="fa-solid fa-comments"></i> Chat
+        </div>
+    </div>
+    <div class="sidebar-footer">
+        <div class="nav-link" style="color: var(--danger);" onclick="location.href='/logout'">
+            <i class="fa-solid fa-power-off"></i> Logout
+        </div>
+    </div>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<div class="main-content">
+    <div class="top-bar">
+        <div class="flex" style="gap: 15px;">
+            <i class="fa-solid fa-bars menu-toggle" onclick="toggleSidebar()"></i>
+            <div class="brand" style="font-size: 1.2rem;">Demon<span>Z</span></div>
+        </div>
+        <div class="flex" style="gap: 15px;">
+            <button class="btn btn-icon" id="theme-toggle"><i class="fa-solid fa-moon"></i></button>
+            <img src="{{ url_for('get_avatar', username=username) }}" class="nav-avatar" onclick="Profile.open()" id="my-profile-pic">
+        </div>
+    </div>
+
+    <div id="view-home" class="view-port active">
+        <div class="card">
+            <h3><i class="fa-solid fa-microchip"></i> System Resources</h3>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <span class="stat-val" id="cpu-stat">0%</span>
+                    <span class="stat-label">CPU Usage</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-val" id="ram-stat">0%</span>
+                    <span class="stat-label">RAM Usage</span>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h3><i class="fa-solid fa-hard-drive"></i> Storage</h3>
+            <div class="progress-track">
+                <div id="storage-bar" class="progress-fill"></div>
+            </div>
+            <div class="flex" style="justify-content: space-between; margin-top: 8px; font-size: 0.85rem; color: var(--text-dim);">
+                <span>Used Space</span>
+                <span id="storage-text">Calculating...</span>
+            </div>
+        </div>
+        <div class="card">
+            <h3><i class="fa-solid fa-bolt"></i> Quick Access</h3>
+            <div class="grid-2">
+                <button class="btn" onclick="openLibrary(false)"><i class="fa-solid fa-globe"></i> Public</button>
+                <button class="btn" onclick="openLibrary(true)"><i class="fa-solid fa-lock" style="color:var(--warning)"></i> Vault</button>
+            </div>
+        </div>
+        {% if is_owner %}
+        <div class="card" style="border-color: var(--accent);">
+            <div class="flex" style="justify-content: space-between; margin-bottom: 15px;">
+                <h3><i class="fa-solid fa-users-gear"></i> User Management</h3>
+                <span class="badge" id="user-count">0 Users</span>
+            </div>
+            <div id="admin-user-list"></div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="btn btn-danger" onclick="adminWipeDB()"><i class="fa-solid fa-skull"></i> Factory Reset DB</button>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="view-files" class="view-port">
+        <div class="file-toolbar">
+            <button class="btn btn-primary" onclick="$('#hidden-upload').click()"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
+            <div style="position: relative;">
+                <button class="btn" id="create-trigger" onclick="$('#create-menu').classList.remove('hidden')"><i class="fa-solid fa-plus"></i> New</button>
+                <div id="create-menu" class="create-menu hidden">
+                    <div class="create-item" onclick="FileManager.create('folder')"><i class="fa-solid fa-folder"></i> Folder</div>
+                    <div class="create-item" onclick="FileManager.create('file')"><i class="fa-solid fa-file-lines"></i> Text File</div>
+                    <div class="create-item" onclick="FileManager.create('py')"><i class="fa-brands fa-python"></i> Python Script</div>
+                </div>
+            </div>
+            <button class="btn" onclick="FileManager.load()"><i class="fa-solid fa-rotate-right"></i></button>
+            <button class="btn hidden" id="paste-btn" onclick="FileManager.paste()"><i class="fa-solid fa-paste"></i> Paste</button>
+        </div>
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div id="file-list" class="file-list"></div>
+        <div id="selection-bar" class="selection-bar hidden">
+            <span class="selection-count"><span id="sel-count">0</span> Selected</span>
+            <i class="fa-solid fa-copy" onclick="FileManager.clipboard('copy')"></i>
+            <i class="fa-solid fa-scissors" onclick="FileManager.clipboard('move')"></i>
+            <i class="fa-solid fa-trash" style="color:var(--danger)" onclick="FileManager.delete()"></i>
+            <i class="fa-solid fa-xmark" onclick="FileManager.clearSelection()"></i>
+        </div>
+    </div>
+
+    <div id="view-chat" class="view-port">
+        <div class="chat-container">
+            <div id="chat-lobby" class="chat-lobby">
+                <div class="chat-header">
+                    <h3>Messages</h3>
+                    <button class="btn btn-icon btn-sm" onclick="Chat.loadLobby()"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+                <div style="padding: 10px; border-bottom: 1px solid var(--border);">
+                    <button class="btn btn-primary w-full" onclick="Chat.open('global')">
+                        <i class="fa-solid fa-earth-americas"></i> Global Chat
+                    </button>
+                </div>
+                <div id="chat-user-list" class="sidebar-content" style="padding:0;"></div>
+            </div>
+            <div id="chat-room" class="chat-room hidden">
+                <div class="chat-header">
+                    <div class="flex" style="gap: 10px;">
+                        <button class="btn btn-icon" onclick="Chat.close()"><i class="fa-solid fa-arrow-left"></i></button>
+                        <span id="chat-title" style="font-weight: 700;">Chat</span>
+                    </div>
+                </div>
+                <div id="msg-area" class="msg-area"></div>
+                <div class="chat-input-area">
+                    <button class="btn btn-icon" onclick="$('#chat-upload').click()"><i class="fa-solid fa-paperclip"></i></button>
+                    <input type="file" id="chat-upload" hidden onchange="Chat.uploadAttachment(this)">
+                    <input type="text" id="msg-in" class="input-box" placeholder="Type a message..." autocomplete="off">
+                    <button class="btn btn-primary btn-icon" onclick="Chat.send()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="profile-modal" class="modal-overlay hidden">
+    <div class="modal-box center">
+        <div class="modal-close" onclick="Profile.close()"><i class="fa-solid fa-xmark"></i></div>
+        <img id="prof-img" src="" class="prof-large">
+        <h2 id="prof-header-name" style="margin-bottom: 20px;">User</h2>
+        <div style="text-align: left; margin-bottom: 15px;">
+            <label style="color:var(--text-dim); font-size:0.8rem;">Nickname</label>
+            <input type="text" id="prof-nick" class="input-box">
+        </div>
+        <div style="text-align: left; margin-bottom: 20px;">
+            <label style="color:var(--text-dim); font-size:0.8rem;">Bio</label>
+            <textarea id="prof-bio" class="input-box"></textarea>
+        </div>
+        <button class="btn btn-primary w-full" onclick="$('#prof-upload').click()">Change Avatar</button>
+        <input type="file" id="prof-upload" hidden onchange="Profile.upload(this)">
+        <button class="btn btn-success w-full" onclick="Profile.save()" style="margin-top: 10px;">Save Changes</button>
+    </div>
+</div>
+
+<div id="media-modal" class="modal-overlay hidden">
+    <div class="preview-container center" id="media-content"></div>
+    <div class="modal-close" onclick="$('#media-modal').classList.add('hidden')" style="color: white; top: 20px; right: 20px;"><i class="fa-solid fa-xmark fa-2x"></i></div>
+</div>
+
+<div id="editor-modal" class="modal-overlay hidden">
+    <div class="modal-box" style="width: 95%; max-width: 800px; height: 85vh;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3><i class="fa-solid fa-code"></i> Editor: <span id="editor-filename" style="color:var(--accent)"></span></h3>
+            <div class="modal-close" data-close-editor style="position:static;"><i class="fa-solid fa-xmark"></i></div>
+        </div>
+        <div class="editor-container">
+            <textarea id="code-content" class="code-area" spellcheck="false"></textarea>
+        </div>
+        <div style="text-align: right; margin-top: 15px;">
+            <button class="btn btn-success" data-save-file><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div id="context-menu" class="context-menu hidden"></div>
+<input type="file" id="hidden-upload" multiple hidden onchange="FileManager.upload(this)">
+
+<script>
+    function toggleSidebar() {
+        const sb = document.getElementById('sidebar');
+        const ov = document.getElementById('sidebar-overlay');
+        sb.classList.toggle('open');
+        ov.classList.toggle('active');
+    }
+</script>
+{% endif %}
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

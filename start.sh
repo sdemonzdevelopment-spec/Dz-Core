@@ -4,7 +4,7 @@
 # Dz-Core: Production-Grade Launch Manager
 # Repository: https://github.com/sdemonzdevelopment-spec/Dz-Core
 # Architecture: Modular Monolith with 6 Functional Modules
-# Version: 2.0.0
+# Version: 2.1.0 (The Sovereign Update)
 # ==============================================================================
 
 # --- CONFIGURATION CONSTANTS ---
@@ -97,8 +97,7 @@ gunicorn>=20.1.0
 python-dotenv>=1.0.0
 EOF
         force_install=true
-    fi
-    
+    fi    
     # Check if venv is new or requirements changed
     if [ "${VENV_NEW}" = true ] || [ "${force_install}" = true ] || \
        [ "${REQUIREMENTS_FILE}" -nt "${VENV_DIR}/.timestamp" ]; then
@@ -206,6 +205,11 @@ EOF
 # MODULE 3: SMART RUNNER
 # ==============================================================================
 
+# HELPER: Get the real LAN IP address
+get_lan_ip() {
+    python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "127.0.0.1"
+}
+
 check_port_available() {
     if command -v lsof >/dev/null 2>&1; then
         if lsof -Pi :"${CURRENT_PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
@@ -273,16 +277,27 @@ health_check() {
 }
 
 start_server() {
+    local lan_ip=$(get_lan_ip)
     echo -e "${CYAN}[START] Initializing server startup...${NC}"
     
     # Check if port is available
     if check_port_available; then
-        echo -e "${RED}[START] Port ${CURRENT_PORT} is already in use${NC}"
-        get_server_pid
-        if [ -n "${SERVER_PID}" ]; then
-            echo -e "${YELLOW}[START] Process ${SERVER_PID} is using the port${NC}"
+        echo -e "${RED}[!] Port ${CURRENT_PORT} is busy. Kill the process? (y/n)${NC}"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            if command -v lsof >/dev/null 2>&1; then
+                kill $(lsof -t -i:"${CURRENT_PORT}")
+            elif command -v fuser >/dev/null 2>&1; then
+                fuser -k "${CURRENT_PORT}/tcp" >/dev/null 2>&1
+            else
+                echo -e "${RED}[START] Cannot kill process: no suitable tool (lsof/fuser) found.${NC}"
+                return 1
+            fi
+            echo -e "${GREEN}[START] Process on port ${CURRENT_PORT} killed.${NC}"
+        else
+            echo -e "${YELLOW}[START] Startup cancelled by user.${NC}"
+            return 1
         fi
-        return 1
     fi
     
     # Rotate logs if needed
@@ -295,7 +310,7 @@ start_server() {
     if [ "${IS_TERMUX}" = true ]; then
         echo -e "${GREEN}[START] Starting in Termux mode (background)...${NC}"
         echo -e "${CYAN}[START] Server output will be written to: ${LOG_FILE}${NC}"
-        echo -e "${CYAN}[START] Access at: http://127.0.0.1:${CURRENT_PORT}${NC}"
+        echo -e "${CYAN}[START] Access at: http://${lan_ip}:${CURRENT_PORT}${NC}"
         
         # Start server in background with nohup and save PID
         nohup python server.py > "${LOG_FILE}" 2>&1 &
@@ -321,12 +336,13 @@ start_server() {
         fi
         
         # Start gunicorn in background
-        gunicorn --workers=4 --bind=0.0.0.0:${CURRENT_PORT} --access-logfile=- --error-logfile="${LOG_FILE}" --daemon --pid="${PID_FILE}" server:app
+        # UPDATED: access-logfile uses LOG_FILE so you can see traffic
+        gunicorn --workers=4 --bind=0.0.0.0:${CURRENT_PORT} --access-logfile="${LOG_FILE}" --error-logfile="${LOG_FILE}" --daemon --pid="${PID_FILE}" server:app
         
         if [ $? -eq 0 ]; then
             SERVER_PID=$(cat "${PID_FILE}" 2>/dev/null)
             echo -e "${GREEN}[START] Server started with PID: ${SERVER_PID}${NC}"
-            echo -e "${CYAN}[START] Access at: http://0.0.0.0:${CURRENT_PORT}${NC}"
+            echo -e "${CYAN}[START] Access at: http://${lan_ip}:${CURRENT_PORT}${NC}"
             
             # Run health check
             if health_check; then
@@ -560,6 +576,16 @@ view_logs() {
     fi
 }
 
+# New Feature: Clear Logs
+clear_logs() {
+    if [ -f "${LOG_FILE}" ]; then
+        > "${LOG_FILE}"
+        echo -e "${GREEN}[LOGS] Log file cleared successfully.${NC}"
+    else
+        echo -e "${YELLOW}[LOGS] No log file found to clear.${NC}"
+    fi
+}
+
 # ==============================================================================
 # MODULE 6: UI/UX & MENU
 # ==============================================================================
@@ -567,13 +593,13 @@ view_logs() {
 show_banner() {
     clear
     echo -e "${PURPLE}"
+    # REPLACED: New Dz-Core Block Font
     cat << "EOF"
-██████╗ ███████╗    ██████╗ ██████╗ ██████╗ ███████╗
-██╔══██╗╚══███╔╝   ██╔════╝██╔═══██╗██╔══██╗██╔════╝
-██║  ██║  ███╔╝    ██║     ██║   ██║██████╔╝█████╗  
-██║  ██║ ███╔╝     ██║     ██║   ██║██╔══██╗██╔══╝  
-██████╔╝███████╗██╗╚██████╗╚██████╔╝██║  ██║███████╗
-╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+██████╗ ███████╗      ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗╚══███╔╝     ██╔════╝██╔═══██╗██╔══██╗██╔════╝██║  ██║  ███╔╝█████╗██║     ██║   ██║██████╔╝█████╗  
+██║  ██║ ███╔╝ ╚════╝██║     ██║   ██║██╔══██╗██╔══╝  
+██████╔╝███████╗     ╚██████╗╚██████╔╝██║  ██║███████╗
+╚═════╝ ╚══════╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
 EOF
     echo -e "${NC}"
     echo -e "${CYAN}        Production Cloud Manager${NC}"
@@ -583,6 +609,7 @@ EOF
 
 show_status() {
     get_server_pid
+    local lan_ip=$(get_lan_ip)
     local status_color=$RED
     local status_text="OFFLINE"
     
@@ -598,6 +625,29 @@ show_status() {
     
     echo -e "${WHITE} Status: ${status_color}${status_text}${NC}"
     echo -e "${WHITE} Port: ${YELLOW}${CURRENT_PORT}${NC}"
+    echo -e "${WHITE} IP:   ${CYAN}http://${lan_ip}:${CURRENT_PORT}${NC}"
+    
+    # Disk Usage (Updated for Cross-Platform Compatibility)
+    if command -v df >/dev/null 2>&1; then
+        # Use universal parsing (Coreutils/Toybox compliant):
+        # 1. df / : check root
+        # 2. tail -1 : get the data line
+        # 3. awk {print $5} : get the Use% column
+        # 4. tr -d % : remove percent sign
+        disk_usage=$(df / | tail -1 | awk '{print $5}' | tr -d '%')
+        echo -e "${WHITE} Disk: ${disk_usage}% used${NC}"
+    fi
+    
+    # RAM Usage
+    if command -v free >/dev/null 2>&1; then
+        ram_total=$(free -b | awk 'NR==2{print $2}')
+        ram_used=$(free -b | awk 'NR==2{print $3}')
+        if [ "$ram_total" -gt 0 ]; then
+            ram_pct=$((ram_used * 100 / ram_total))
+            echo -e "${WHITE} RAM:  ${ram_pct}% used${NC}"
+        fi
+    fi
+    
     echo -e "${WHITE} Mode: ${YELLOW}${ENV_TYPE}${NC}"
     echo -e "${WHITE}----------------------------------------${NC}"
 }
@@ -624,7 +674,8 @@ maintenance_menu() {
         echo -e "  1) ${YELLOW}Rotate Logs${NC}      - Manage log files"
         echo -e "  2) ${BLUE}Backup Database${NC}   - Create DB backup"
         echo -e "  3) ${RED}Factory Reset${NC}     - Wipe all data (DANGER)"
-        echo -e "  4) ${WHITE}Return to Main Menu${NC}"
+        echo -e "  4) ${PURPLE}Clear Logs${NC}        - Empty server.log"
+        echo -e "  5) ${WHITE}Return to Main Menu${NC}"
         echo ""
         read -p "$(echo -e "${CYAN}Selection > ${NC}")" maint_opt
         
@@ -632,11 +683,12 @@ maintenance_menu() {
             1) rotate_logs ;;
             2) backup_database ;;
             3) factory_reset ;;
-            4) return 0 ;;
+            4) clear_logs ;;
+            5) return 0 ;;
             *) echo -e "${RED}Invalid option${NC}"; sleep 1 ;;
         esac
         
-        if [ ${maint_opt} -ne 4 ]; then
+        if [ ${maint_opt} -ne 5 ]; then
             read -p "$(echo -e "${GREEN}Press Enter to continue...${NC}")"
         fi
     done

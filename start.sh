@@ -224,6 +224,20 @@ check_port_available() {
 }
 
 get_server_pid() {
+    # First try to get PID from file
+    if [ -f "${PID_FILE}" ]; then
+        SERVER_PID=$(cat "${PID_FILE}" 2>/dev/null)
+        # Verify the process is still running
+        if [ -n "${SERVER_PID}" ] && kill -0 "${SERVER_PID}" 2>/dev/null; then
+            return 0
+        else
+            # PID file exists but process is dead
+            rm -f "${PID_FILE}"
+            SERVER_PID=""
+        fi
+    fi
+    
+    # Fall back to port check
     if check_port_available; then
         if command -v lsof >/dev/null 2>&1; then
             SERVER_PID=$(lsof -t -i:"${CURRENT_PORT}" 2>/dev/null | head -1)
@@ -279,10 +293,25 @@ start_server() {
     
     # Start server based on environment
     if [ "${IS_TERMUX}" = true ]; then
-        echo -e "${GREEN}[START] Starting in Termux mode (foreground)...${NC}"
+        echo -e "${GREEN}[START] Starting in Termux mode (background)...${NC}"
+        echo -e "${CYAN}[START] Server output will be written to: ${LOG_FILE}${NC}"
         echo -e "${CYAN}[START] Access at: http://127.0.0.1:${CURRENT_PORT}${NC}"
-        echo -e "${YELLOW}[START] Press Ctrl+C to stop the server${NC}"
-        python server.py
+        
+        # Start server in background with nohup and save PID
+        nohup python server.py > "${LOG_FILE}" 2>&1 &
+        SERVER_PID=$!
+        echo "${SERVER_PID}" > "${PID_FILE}"
+        
+        echo -e "${GREEN}[START] Server started with PID: ${SERVER_PID}${NC}"
+        echo -e "${YELLOW}[START] You can now continue using the menu${NC}"
+        
+        # Run health check
+        if health_check; then
+            IS_RUNNING=true
+        else
+            stop_server
+            return 1
+        fi
     else
         echo -e "${GREEN}[START] Starting in Linux mode (production with gunicorn)...${NC}"
         
@@ -316,7 +345,16 @@ start_server() {
 stop_server() {
     echo -e "${CYAN}[STOP] Stopping server...${NC}"
     
-    get_server_pid
+    # Try to get PID from file first (works for both Termux and Linux)
+    if [ -f "${PID_FILE}" ]; then
+        SERVER_PID=$(cat "${PID_FILE}" 2>/dev/null)
+        echo -e "${YELLOW}[STOP] Found PID from file: ${SERVER_PID}${NC}"
+    fi
+    
+    # If no PID from file, try to get from port
+    if [ -z "${SERVER_PID}" ]; then
+        get_server_pid
+    fi
     
     if [ -n "${SERVER_PID}" ]; then
         echo -e "${YELLOW}[STOP] Stopping process ${SERVER_PID}...${NC}"
@@ -337,6 +375,12 @@ stop_server() {
         fi
         
         echo -e "${GREEN}[STOP] Process ${SERVER_PID} stopped${NC}"
+    else
+        echo -e "${YELLOW}[STOP] No PID found, trying to kill by port...${NC}"
+        # Try to kill any process using the port
+        if command -v fuser >/dev/null 2>&1; then
+            fuser -k "${CURRENT_PORT}/tcp" 2>/dev/null
+        fi
     fi
     
     # Remove PID file if exists
@@ -524,11 +568,12 @@ show_banner() {
     clear
     echo -e "${PURPLE}"
     cat << "EOF"
-    ____        _        ____                  
-   |  _ \ _   _| | ___  / ___| ___ _ __ ___    
-   | | | | | | | |/ _ \| |  _ / _ \ '__/ _ \   
-   | |_| | |_| | | (_) | |_| |  __/ | | (_) |  
-   |____/ \__,_|_|\___/ \____|\___|_|  \___/   
+██████╗ ███████╗    ██████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗╚══███╔╝   ██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██║  ██║  ███╔╝    ██║     ██║   ██║██████╔╝█████╗  
+██║  ██║ ███╔╝     ██║     ██║   ██║██╔══██╗██╔══╝  
+██████╔╝███████╗██╗╚██████╗╚██████╔╝██║  ██║███████╗
+╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
 EOF
     echo -e "${NC}"
     echo -e "${CYAN}        Production Cloud Manager${NC}"
